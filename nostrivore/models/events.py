@@ -3,7 +3,8 @@ from typing import List, Optional
 
 from nostr.event import Event
 from nostr.key import PrivateKey
-# nip04_encrypt is a method of PrivateKey
+# nip04_encrypt is part of PrivateKey.encrypt_message for this library version
+# from nostr.nip04 import nip04_encrypt # Not needed directly if using PrivateKey methods
 from pydantic import BaseModel
 
 
@@ -71,3 +72,57 @@ class ArticleSaveEvent(BaseModel):
             signature=event_signature_hex
         )
         return event
+
+
+class ArticleContentEvent(BaseModel):
+    """
+    Represents a Nostr Kind 30001 event for saving article content.
+    NIP-04 encrypted if private.
+    """
+    article_content: str
+    parent_event_id: str  # ID of the Kind 30000 ArticleSaveEvent this content belongs to
+    is_private: bool
+
+    def to_nostr_event(self, private_key_hex: str) -> Event:
+        """
+        Constructs a Nostr event from this ArticleContentEvent.
+        """
+        sender_private_key = PrivateKey(bytes.fromhex(private_key_hex))
+        sender_public_key_hex = sender_private_key.public_key.hex()
+
+        event_content = self.article_content
+        event_tags = [["e", self.parent_event_id]]
+        created_at_ts = int(time.time())
+        kind = 30001 # Nostr Kind for Article Content
+
+        if self.is_private:
+            encrypted_content = sender_private_key.encrypt_message(
+                message=self.article_content,
+                public_key_hex=sender_public_key_hex  # Encrypting to self for now
+            )
+            event_content = encrypted_content
+            event_tags.append(["p", sender_public_key_hex])
+
+        # Compute ID using the static method from nostr.event.Event
+        event_id = Event.compute_id(
+            public_key=sender_public_key_hex,
+            created_at=created_at_ts,
+            kind=kind,
+            tags=event_tags,
+            content=event_content
+        )
+
+        # Sign the ID using the method from nostr.key.PrivateKey
+        event_signature_hex = sender_private_key.sign_message_hash(bytes.fromhex(event_id))
+
+        # Create the Event object
+        nostr_event = Event(
+            public_key=sender_public_key_hex,
+            content=event_content,
+            created_at=created_at_ts,
+            kind=kind,
+            tags=event_tags,
+            id=event_id,
+            signature=event_signature_hex
+        )
+        return nostr_event

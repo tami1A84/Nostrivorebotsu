@@ -1,3 +1,4 @@
 nostr
 pydantic
 pytest
+pytest-mock
